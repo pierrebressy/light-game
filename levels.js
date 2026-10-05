@@ -398,6 +398,209 @@
         { tool: 3, x: 650, y: 880, angle: 135 },
       ],
     },
+
+    // ---------- Chapitre lentilles ----------
+    {
+      name: 'Loupe',
+      hint: 'Un rayon qui traverse une lentille loin de son centre est dévié vers l’axe.',
+      objects: [
+        { type: 'source', x: 80, y: 250, angle: 0 },
+        { type: 'wall', x: 600, y: 24, w: 30, h: 300 },
+        { type: 'target', x: 560, y: 250, avoid: true },
+        { type: 'target', x: 740, y: 470.5, color: 'W' },
+      ],
+      tools: [
+        { type: 'lens', f: 200, len: 200, count: 1 },
+      ],
+      solution: [
+        { tool: 0, x: 250, y: 340, angle: 90 },
+      ],
+    },
+    {
+      name: 'Foyer',
+      hint: 'Des rayons parallèles se croisent au foyer, sur l’axe de la lentille.',
+      objects: [
+        { type: 'source', x: 80, y: 300, angle: 0, color: 'R' },
+        { type: 'source', x: 80, y: 450, angle: 0, color: 'G' },
+        { type: 'wall', x: 620, y: 24, w: 20, h: 331 },
+        { type: 'wall', x: 620, y: 395, w: 20, h: 581 },
+        { type: 'target', x: 690, y: 375, color: 'Y' },
+      ],
+      tools: [
+        { type: 'lens', f: 200, len: 260, count: 1 },
+      ],
+      solution: [
+        { tool: 0, x: 450, y: 375, angle: 90 },
+      ],
+    },
+    {
+      name: 'Plan focal',
+      hint: 'Rayons parallèles mais inclinés : ils se croisent à côté du foyer.',
+      objects: [
+        { type: 'source', x: 80, y: 200, angle: 20, color: 'R' },
+        { type: 'source', x: 80, y: 330, angle: 20, color: 'B' },
+        { type: 'wall', x: 520, y: 24, w: 20, h: 381.8 },
+        { type: 'wall', x: 520, y: 465.8, w: 20, h: 510.2 },
+        { type: 'target', x: 575, y: 435.8, color: 'M' },
+      ],
+      tools: [
+        { type: 'lens', f: 200, len: 260, count: 1 },
+      ],
+      solution: [
+        { tool: 0, x: 350, y: 363, angle: 90 },
+      ],
+    },
+    {
+      name: 'Agrandisseur',
+      hint: 'Divergente puis convergente : les faisceaux s’écartent et restent parallèles.',
+      objects: [
+        { type: 'source', x: 80, y: 470, angle: 0 },
+        { type: 'source', x: 80, y: 530, angle: 0 },
+        { type: 'wall', x: 640, y: 24, w: 20, h: 366 },
+        { type: 'wall', x: 640, y: 430, w: 20, h: 140 },
+        { type: 'wall', x: 640, y: 610, w: 20, h: 366 },
+        { type: 'target', x: 740, y: 410, color: 'W' },
+        { type: 'target', x: 740, y: 590, color: 'W' },
+      ],
+      tools: [
+        { type: 'lens', f: -100, len: 120, count: 1 },
+        { type: 'lens', f: 300, len: 260, count: 1 },
+      ],
+      solution: [
+        { tool: 0, x: 200, y: 500, angle: 90 },
+        { tool: 1, x: 400, y: 500, angle: 90 },
+      ],
+    },
+    {
+      name: 'Œil de chat',
+      hint: 'Un miroir au foyer d’une lentille renvoie la lumière parallèlement… mais décalée.',
+      objects: [
+        { type: 'source', x: 80, y: 250, angle: 0 },
+        { type: 'wall', x: 24, y: 320, w: 576, h: 60 },
+        { type: 'target', x: 100, y: 450, color: 'W' },
+      ],
+      tools: [
+        { type: 'lens', f: 100, len: 240, count: 1 },
+        { type: 'mirror', count: 1 },
+      ],
+      solution: [
+        { tool: 0, x: 650, y: 350, angle: 90 },
+        { tool: 1, x: 750, y: 350, angle: 90 },
+      ],
+    },
+    {
+      name: 'Projecteur',
+      hint: 'Fais l’image du diffuseur dans la fente. Deux positions marchent pour la fente… une seule pour les drapeaux.',
+      objects: [
+        { type: 'source', x: 60, y: 500, angle: 0 },
+        { type: 'diffuser', x: 150, y: 500, rays: 5, spread: 40 },
+        { type: 'wall', x: 590, y: 24, w: 20, h: 461 },
+        { type: 'wall', x: 590, y: 515, w: 20, h: 461 },
+        { type: 'target', x: 750, y: 390.8, color: 'W', r: 20 },
+        { type: 'target', x: 750, y: 447.1, color: 'W', r: 20 },
+        { type: 'target', x: 750, y: 500, color: 'W', r: 20 },
+        { type: 'target', x: 750, y: 552.9, color: 'W', r: 20 },
+        { type: 'target', x: 750, y: 609.2, color: 'W', r: 20 },
+      ],
+      tools: [
+        { type: 'lens', f: 100, len: 240, count: 1 },
+      ],
+      solution: [
+        { tool: 0, x: 450, y: 500, angle: 90 },
+      ],
+    },
+    {
+      name: 'Recomposition',
+      hint: 'Newton l’a fait : une lentille peut refaire du blanc avec l’arc-en-ciel.',
+      objects: [
+        { type: 'source', x: 80, y: 500, angle: 0 },
+        { type: 'prism', x: 200, y: 500, angle: 36, size: 55 },
+        { type: 'target', x: 490.6, y: 235.9, color: 'W' },
+      ],
+      tools: [
+        { type: 'lens', f: 90, len: 220, count: 1 },
+      ],
+      solution: [
+        { tool: 0, x: 365.3, y: 347.8, angle: 48.2 },
+      ],
+    },
+    {
+      name: 'Inversion',
+      hint: 'Deux lentilles bien espacées retournent l’ordre des faisceaux.',
+      objects: [
+        { type: 'source', x: 80, y: 400, angle: 0, color: 'R' },
+        { type: 'source', x: 80, y: 500, angle: 0, color: 'G' },
+        { type: 'source', x: 80, y: 600, angle: 0, color: 'B' },
+        { type: 'wall', x: 650, y: 24, w: 20, h: 356 },
+        { type: 'wall', x: 650, y: 420, w: 20, h: 60 },
+        { type: 'wall', x: 650, y: 520, w: 20, h: 60 },
+        { type: 'wall', x: 650, y: 620, w: 20, h: 356 },
+        { type: 'target', x: 740, y: 400, color: 'B', r: 22 },
+        { type: 'target', x: 740, y: 500, color: 'G', r: 22 },
+        { type: 'target', x: 740, y: 600, color: 'R', r: 22 },
+      ],
+      tools: [
+        { type: 'lens', f: 150, len: 240, count: 2 },
+      ],
+      solution: [
+        { tool: 0, x: 200, y: 500, angle: 90 },
+        { tool: 0, x: 500, y: 500, angle: 90 },
+      ],
+    },
+    {
+      name: 'Rayons parallèles',
+      hint: 'Éventail, lentille, miroir : trois rayons parallèles, trois filtres.',
+      objects: [
+        { type: 'source', x: 80, y: 880, angle: 0 },
+        { type: 'wall', x: 24, y: 400, w: 552.4, h: 20 },
+        { type: 'wall', x: 616.4, y: 400, w: 13.6, h: 20 },
+        { type: 'wall', x: 670, y: 400, w: 13.6, h: 20 },
+        { type: 'wall', x: 723.6, y: 400, w: 52.4, h: 20 },
+        { type: 'filter', x: 596.4, y: 410, angle: 0, len: 40, color: 'B' },
+        { type: 'filter', x: 650, y: 410, angle: 0, len: 40, color: 'G' },
+        { type: 'filter', x: 703.6, y: 410, angle: 0, len: 40, color: 'R' },
+        { type: 'target', x: 596.4, y: 150, color: 'B', r: 22 },
+        { type: 'target', x: 650, y: 150, color: 'G', r: 22 },
+        { type: 'target', x: 703.6, y: 150, color: 'R', r: 22 },
+      ],
+      tools: [
+        { type: 'diffuser', rays: 3, spread: 30, count: 1 },
+        { type: 'lens', f: 200, len: 200, count: 1 },
+        { type: 'mirror', len: 220, count: 1 },
+      ],
+      solution: [
+        { tool: 0, x: 200, y: 880 },
+        { tool: 1, x: 400, y: 880, angle: 90 },
+        { tool: 2, x: 650, y: 880, angle: 135 },
+      ],
+    },
+    {
+      name: 'Final des lentilles',
+      hint: 'Choisis la bonne lentille… et la bonne distance.',
+      objects: [
+        { type: 'source', x: 80, y: 150, angle: 0 },
+        { type: 'wall', x: 24, y: 760, w: 246.8, h: 20 },
+        { type: 'wall', x: 310.8, y: 760, w: 69.2, h: 20 },
+        { type: 'wall', x: 420, y: 760, w: 69.2, h: 20 },
+        { type: 'wall', x: 529.2, y: 760, w: 246.8, h: 20 },
+        { type: 'target', x: 150, y: 880, avoid: true },
+        { type: 'target', x: 650, y: 880, avoid: true },
+        { type: 'target', x: 290.8, y: 880, color: 'W', r: 22 },
+        { type: 'target', x: 400, y: 880, color: 'W', r: 22 },
+        { type: 'target', x: 509.2, y: 880, color: 'W', r: 22 },
+      ],
+      tools: [
+        { type: 'mirror', count: 1 },
+        { type: 'diffuser', rays: 3, spread: 40, count: 1 },
+        { type: 'lens', f: 100, len: 160, count: 1 },
+        { type: 'lens', f: 300, len: 260, count: 1 },
+      ],
+      solution: [
+        { tool: 0, x: 400, y: 150, angle: 45 },
+        { tool: 1, x: 400, y: 250 },
+        { tool: 3, x: 400, y: 550, angle: 0 },
+      ],
+    },
   ];
 
   if (typeof module !== 'undefined' && module.exports) module.exports = LEVELS;

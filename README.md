@@ -2,7 +2,7 @@
 
 Puzzle de lumière en JavaScript pur. Chaque niveau fournit une **boîte à outils** (miroirs, lames séparatrices,
 miroirs dichroïques, filtres, prismes, lentilles convergentes/divergentes, diffuseurs) : glisse les pièces sur le
-plateau, place-les où tu veux, tourne-les, pour guider la lumière jusqu'aux drapeaux. 20 niveaux.
+plateau, place-les où tu veux, tourne-les, pour guider la lumière jusqu’aux drapeaux. 30 niveaux, dont un chapitre entier sur les lentilles.
 
 **Jouer :** https://pierrebressy.github.io/light-game/
 
