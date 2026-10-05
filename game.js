@@ -1,4 +1,4 @@
-// Rendu canvas, interactions (souris / tactile / clavier), progression.
+// Rendu canvas, boîte à outils (glisser-déposer), interactions souris / tactile / clavier, progression.
 // Appelé par index.html (après engine.js et levels.js).
 (function () {
   'use strict';
@@ -6,14 +6,17 @@
   const E = window.LightEngine;
   const LEVELS = window.LIGHT_LEVELS;
   const { W, H, BORDER, DEG } = E;
-  const STORE_KEY = 'lightgame.progress';
+  const STORE_KEY = 'lightgame.progress.v2';
 
   const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
+  const mainCtx = canvas.getContext('2d');
+  let ctx = mainCtx; // remplacé temporairement pour dessiner les icônes de la boîte à outils
   const $ = id => document.getElementById(id);
+  const toolbar = $('toolbar');
 
   // ---------- État ----------
   let levelIndex = 0;
+  let level = null;
   let objects = [];
   let result = null;
   let scale = 1, dpr = 1;
@@ -44,6 +47,7 @@
     return [Math.min(255, r), Math.min(255, g), Math.min(255, b)];
   }
   const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+  const COLOR_LABEL = { R: 'rouge', G: 'vert', B: 'bleu', Y: 'jaune', M: 'magenta', C: 'cyan', W: 'blanc' };
 
   // ---------- Motif de briques ----------
   const brick = (() => {
@@ -66,35 +70,108 @@
   let brickPattern = null;
 
   // ---------- Niveau ----------
-  const isInteractive = o => o.rotatable || !!o.track;
+  const isInteractive = o => o.placed || o.rotatable || !!o.track;
+  const canRotate = o => !!o.rotatable;
 
   function loadLevel(i) {
     levelIndex = Math.max(0, Math.min(LEVELS.length - 1, i));
-    const lvl = LEVELS[levelIndex];
-    objects = E.cloneLevel(lvl.objects);
-    selected = objects.find(isInteractive) || null;
-    hovered = null; drag = null;
+    level = LEVELS[levelIndex];
+    objects = E.cloneLevel(level.objects);
+    selected = null; hovered = null; drag = null;
     solvedAt = 0; winShown = false;
     $('lvl-num').textContent = `Niveau ${levelIndex + 1} / ${LEVELS.length}`;
-    $('lvl-name').textContent = lvl.name;
-    $('hint').textContent = lvl.hint || '';
+    $('lvl-name').textContent = level.name;
+    $('hint').textContent = level.hint || '';
     $('btn-prev').disabled = levelIndex === 0;
     $('btn-next').disabled = levelIndex === LEVELS.length - 1 || !isUnlocked(levelIndex + 1);
     hideOverlays();
     try { history.replaceState(null, '', `#${levelIndex + 1}`); } catch (e) { /* file:// */ }
+    buildToolbar();
+    resize();
     update();
   }
 
   function update() {
     result = E.trace(objects);
-    if (result.solved && !solvedAt) {
+    if (result.solved && !solvedAt && !drag) {
       solvedAt = performance.now();
-      drag = null;
       if (!isDone(levelIndex)) { progress.done.push(levelIndex); saveProgress(); }
       $('btn-next').disabled = levelIndex === LEVELS.length - 1;
       chime();
       setTimeout(showWin, 900);
     }
+  }
+
+  // ---------- Boîte à outils ----------
+  function toolLabel(t) {
+    switch (t.type) {
+      case 'mirror': return 'Miroir';
+      case 'splitter': return 'Lame';
+      case 'dichroic': return `Dichro. ${COLOR_LABEL[t.color || 'R']}`;
+      case 'filter': return `Filtre ${COLOR_LABEL[t.color || 'G']}`;
+      case 'prism': return 'Prisme';
+      case 'lens': { const f = t.f || 200; return `Lentille ${f > 0 ? '+' : '−'}${Math.abs(f)}`; }
+      case 'diffuser': return `Diffuseur ×${t.rays || 3}`;
+      default: return t.type;
+    }
+  }
+  function toolTitle(t) {
+    switch (t.type) {
+      case 'mirror': return 'Miroir : réfléchit la lumière';
+      case 'splitter': return 'Lame séparatrice : réfléchit et laisse passer';
+      case 'dichroic': return `Miroir dichroïque : réfléchit le ${COLOR_LABEL[t.color || 'R']}, laisse passer le reste`;
+      case 'filter': return `Filtre : ne laisse passer que le ${COLOR_LABEL[t.color || 'G']}`;
+      case 'prism': return 'Prisme : décompose la lumière blanche';
+      case 'lens': return (t.f || 200) > 0 ? `Lentille convergente, focale ${t.f || 200}` : `Lentille divergente, focale ${t.f}`;
+      case 'diffuser': return `Diffuseur : éclate un rayon en ${t.rays || 3} rayons sur ${t.spread || 40}°`;
+      default: return t.type;
+    }
+  }
+
+  const usedCount = k => objects.filter(o => o.placed && o.tool === k).length;
+
+  function buildToolbar() {
+    toolbar.innerHTML = '';
+    (level.tools || []).forEach((t, k) => {
+      const b = document.createElement('button');
+      b.className = 'tool';
+      b.title = `${toolTitle(t)} — glisse-le sur le plateau`;
+      b.dataset.tool = k;
+      const c = document.createElement('canvas');
+      c.width = 88; c.height = 88;
+      drawToolIcon(c, t);
+      const label = document.createElement('span');
+      label.textContent = toolLabel(t);
+      const badge = document.createElement('b');
+      b.append(c, label, badge);
+      b.addEventListener('pointerdown', e => startToolDrag(e, k));
+      toolbar.appendChild(b);
+    });
+    refreshToolbar();
+  }
+
+  function refreshToolbar() {
+    toolbar.querySelectorAll('.tool').forEach(b => {
+      const k = Number(b.dataset.tool);
+      const left = level.tools[k].count - usedCount(k);
+      b.querySelector('b').textContent = `×${left}`;
+      b.classList.toggle('empty', left <= 0);
+    });
+  }
+
+  function drawToolIcon(c, t) {
+    const g = c.getContext('2d');
+    const piece = E.makePiece(t, 0, 0);
+    if (piece.type === 'lens' || piece.type === 'filter') piece.angle = 90;
+    const extent = piece.type === 'prism' ? piece.size * 1.9
+      : piece.type === 'diffuser' ? 70 : Math.max(60, piece.len || 80);
+    const s = Math.min(1.2, 72 / extent);
+    g.setTransform(s, 0, 0, s, 44, 44);
+    const saved = ctx;
+    ctx = g;
+    if (piece.type === 'diffuser') drawFanPreview(piece);
+    drawPiece(piece, 0, true);
+    ctx = saved;
   }
 
   // ---------- Dimensionnement ----------
@@ -107,7 +184,7 @@
     canvas.style.height = `${H * scale}px`;
     canvas.width = Math.round(W * scale * dpr);
     canvas.height = Math.round(H * scale * dpr);
-    brickPattern = ctx.createPattern(brick, 'repeat');
+    brickPattern = mainCtx.createPattern(brick, 'repeat');
   }
 
   // ---------- Dessin ----------
@@ -116,21 +193,55 @@
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
 
+    drawNoPlace();
     drawWalls();
     for (const o of objects) if (o.track) drawTrack(o);
     drawBeams(now);
-    for (const o of objects) {
-      if (o.type === 'prism') drawPrism(o);
-      else if (o.type === 'mirror') drawMirror(o, false);
-      else if (o.type === 'splitter') drawMirror(o, true);
-      else if (o.type === 'filter') drawFilter(o);
-      else if (o.type === 'dichroic') drawDichroic(o);
-      else if (o.type === 'portal') drawPortal(o, now);
-      else if (o.type === 'source') drawSource(o);
-    }
+    for (const o of objects) if (o.type !== 'target' && o.type !== 'wall') drawPiece(o, now, false);
     result.targets.forEach((t, i) => drawTarget(t, result.received[i], result.lit[i], now));
     const ui = drag ? drag.obj : (hovered || selected);
-    if (ui && !solvedAt) drawHandle(ui);
+    if (ui && !solvedAt && objects.includes(ui)) drawHandle(ui);
+  }
+
+  function drawPiece(o, now, icon) {
+    if (o.invalid) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,60,60,0.18)';
+      ctx.strokeStyle = 'rgba(255,80,80,0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(o.x, o.y, pieceRadius(o), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+    switch (o.type) {
+      case 'prism': drawPrism(o); break;
+      case 'mirror': drawMirror(o, false); break;
+      case 'splitter': drawMirror(o, true); break;
+      case 'filter': drawFilter(o); break;
+      case 'dichroic': drawDichroic(o); break;
+      case 'portal': drawPortal(o, now); break;
+      case 'lens': drawLens(o); break;
+      case 'diffuser': drawDiffuser(o, now); break;
+      case 'source': drawSource(o); break;
+    }
+    if (!icon && o.placed) drawPivot(o);
+  }
+
+  function drawNoPlace() {
+    if (!level.noPlace) return;
+    ctx.save();
+    for (const z of level.noPlace) {
+      ctx.fillStyle = 'rgba(255,255,255,0.03)';
+      ctx.fillRect(z.x, z.y, z.w, z.h);
+      ctx.beginPath();
+      ctx.rect(z.x, z.y, z.w, z.h);
+      ctx.clip();
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 2;
+      for (let d = -z.h; d < z.w; d += 14) {
+        ctx.beginPath(); ctx.moveTo(z.x + d, z.y + z.h); ctx.lineTo(z.x + d + z.h, z.y); ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   function wallRect(x, y, w, h) {
@@ -209,7 +320,7 @@
       ctx.stroke();
     }
     ctx.restore();
-    drawPivot(o);
+    if (!o.placed) drawPivot(o);
   }
 
   function drawPivot(o) {
@@ -235,53 +346,6 @@
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.restore();
-    if (isInteractive(o)) drawPivot(o);
-  }
-
-  function drawPrism(o) {
-    const v = E.prismVertices(o);
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(v[0][0], v[0][1]); ctx.lineTo(v[1][0], v[1][1]); ctx.lineTo(v[2][0], v[2][1]); ctx.closePath();
-    const g = ctx.createLinearGradient(v[0][0], v[0][1], v[2][0], v[2][1]);
-    g.addColorStop(0, 'rgba(190,225,255,0.18)'); g.addColorStop(1, 'rgba(190,225,255,0.04)');
-    ctx.fillStyle = g;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(210,235,255,0.85)';
-    ctx.lineWidth = 2;
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-    ctx.restore();
-    if (isInteractive(o)) drawPivot(o);
-  }
-
-  function drawSource(o) {
-    const c = maskRGB(E.COLOR_MASK[o.color || 'W']);
-    ctx.save();
-    ctx.translate(o.x, o.y);
-    ctx.rotate(o.angle * DEG);
-    const body = ctx.createLinearGradient(0, -14, 0, 14);
-    body.addColorStop(0, '#9aa1aa'); body.addColorStop(0.5, '#5d636b'); body.addColorStop(1, '#2f3338');
-    ctx.fillStyle = body;
-    roundRect(-30, -12, 44, 24, 5); ctx.fill();
-    ctx.fillStyle = '#3c4148';
-    roundRect(10, -16, 18, 32, 4); ctx.fill();
-    ctx.fillStyle = rgba(c, 1);
-    ctx.shadowColor = rgba(c, 1);
-    ctx.shadowBlur = 16;
-    roundRect(25, -13, 5, 26, 2); ctx.fill();
-    ctx.restore();
-    if (isInteractive(o)) drawPivot(o);
-  }
-
-  function roundRect(x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
   }
 
   function drawDichroic(o) {
@@ -304,10 +368,76 @@
     ctx.setLineDash([3, 6]);
     ctx.stroke();
     ctx.restore();
-    drawPivot(o);
   }
 
-  // Couleur partagée par les deux portails d'une même paire.
+  // Lentille : biconvexe (convergente) ou biconcave (divergente), dans le repère de la lentille.
+  function drawLens(o) {
+    const L = (o.len || 140) / 2, conv = (o.f || 200) > 0;
+    ctx.save();
+    ctx.translate(o.x, o.y);
+    ctx.rotate(o.angle * DEG);
+    ctx.beginPath();
+    if (conv) {
+      const T = Math.min(22, 8 + L * 0.08);
+      ctx.moveTo(-L, 0);
+      ctx.quadraticCurveTo(0, -2 * T, L, 0);
+      ctx.quadraticCurveTo(0, 2 * T, -L, 0);
+    } else {
+      const T = 12;
+      ctx.moveTo(-L, -T);
+      ctx.quadraticCurveTo(0, -2, L, -T);
+      ctx.lineTo(L, T);
+      ctx.quadraticCurveTo(0, 2, -L, T);
+      ctx.closePath();
+    }
+    const g = ctx.createLinearGradient(0, -20, 0, 20);
+    g.addColorStop(0, 'rgba(170,215,255,0.32)'); g.addColorStop(0.5, 'rgba(220,240,255,0.12)'); g.addColorStop(1, 'rgba(170,215,255,0.32)');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(215,238,255,0.9)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawDiffuser(o, now) {
+    const r = o.r || 16;
+    ctx.save();
+    ctx.translate(o.x, o.y);
+    const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 2.2);
+    glow.addColorStop(0, 'rgba(255,255,255,0.35)');
+    glow.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(0, 0, r * 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.rotate(now / 3000);
+    ctx.beginPath();
+    for (let k = 0; k < 12; k++) {
+      const a = (k * Math.PI) / 6, rr = k % 2 ? r * 0.55 : r;
+      ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(225,240,255,0.35)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(240,250,255,0.95)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Petit éventail dessiné derrière l'icône du diffuseur.
+  function drawFanPreview(o) {
+    const n = o.rays || 3, spread = (o.spread || 40) * DEG;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,250,230,0.6)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-34, 0); ctx.lineTo(0, 0); ctx.stroke();
+    for (let k = 0; k < n; k++) {
+      const a = n === 1 ? 0 : -spread / 2 + (k * spread) / (n - 1);
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * 34, Math.sin(a) * 34); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function portalHue(o) {
     const key = [o.id, o.link].sort().join('');
     let h = 0;
@@ -332,21 +462,53 @@
     ctx.setLineDash([10, 6]);
     ctx.lineDashOffset = -now / 40;
     ctx.stroke();
-    // Flèche indiquant l'orientation (sens de sortie relatif).
-    ctx.setLineDash([]);
-    const nx = -Math.sin(o.angle * DEG), ny = Math.cos(o.angle * DEG);
-    ctx.fillStyle = `hsl(${hue},100%,75%)`;
-    ctx.beginPath();
-    ctx.moveTo(o.x + nx * 16, o.y + ny * 16);
-    ctx.lineTo(o.x + nx * 6 - ny * 6, o.y + ny * 6 + nx * 6);
-    ctx.lineTo(o.x + nx * 6 + ny * 6, o.y + ny * 6 - nx * 6);
-    ctx.closePath();
-    ctx.fill();
     ctx.restore();
-    if (isInteractive(o)) drawPivot(o);
   }
 
-  // Capteur interdit : doit rester dans le noir.
+  function drawPrism(o) {
+    const v = E.prismVertices(o);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(v[0][0], v[0][1]); ctx.lineTo(v[1][0], v[1][1]); ctx.lineTo(v[2][0], v[2][1]); ctx.closePath();
+    const g = ctx.createLinearGradient(v[0][0], v[0][1], v[2][0], v[2][1]);
+    g.addColorStop(0, 'rgba(190,225,255,0.18)'); g.addColorStop(1, 'rgba(190,225,255,0.04)');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(210,235,255,0.85)';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSource(o) {
+    const c = maskRGB(E.COLOR_MASK[o.color || 'W']);
+    ctx.save();
+    ctx.translate(o.x, o.y);
+    ctx.rotate(o.angle * DEG);
+    const body = ctx.createLinearGradient(0, -14, 0, 14);
+    body.addColorStop(0, '#9aa1aa'); body.addColorStop(0.5, '#5d636b'); body.addColorStop(1, '#2f3338');
+    ctx.fillStyle = body;
+    roundRect(-30, -12, 44, 24, 5); ctx.fill();
+    ctx.fillStyle = '#3c4148';
+    roundRect(10, -16, 18, 32, 4); ctx.fill();
+    ctx.fillStyle = rgba(c, 1);
+    ctx.shadowColor = rgba(c, 1);
+    ctx.shadowBlur = 16;
+    roundRect(25, -13, 5, 26, 2); ctx.fill();
+    ctx.restore();
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
   function drawAvoid(t, received, now) {
     const r = t.r || 26;
     const hit = received !== 0;
@@ -398,7 +560,6 @@
     ctx.strokeStyle = rgba(want, lit ? 1 : 0.85);
     ctx.lineWidth = 4;
     ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, Math.PI * 2); ctx.stroke();
-    // Drapeau.
     ctx.shadowBlur = 0;
     ctx.strokeStyle = '#d9d9d9';
     ctx.lineWidth = 3;
@@ -414,10 +575,22 @@
     ctx.restore();
   }
 
-  // Rapporteur + poignée orange + angle affiché, comme dans le jeu original.
+  // Rapporteur + poignée orange + angle, foyers des lentilles.
   function drawHandle(o) {
     ctx.save();
-    if (o.rotatable) {
+    if (o.type === 'lens') {
+      const f = o.f || 200;
+      const nx = -Math.sin(o.angle * DEG), ny = Math.cos(o.angle * DEG);
+      ctx.fillStyle = f > 0 ? '#8fd3ff' : '#c9a4ff';
+      ctx.font = '600 13px ui-rounded, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      for (const s of [-1, 1]) {
+        const fx = o.x + nx * f * s, fy = o.y + ny * f * s;
+        ctx.beginPath(); ctx.arc(fx, fy, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillText('F', fx, fy - 9);
+      }
+    }
+    if (canRotate(o)) {
       const R = handleRadius(o);
       const a = o.angle * DEG;
       ctx.strokeStyle = 'rgba(255,178,63,0.35)';
@@ -434,7 +607,7 @@
       const hx = o.x + Math.cos(a) * R, hy = o.y + Math.sin(a) * R;
       ctx.fillStyle = '#ffb23f';
       ctx.shadowColor = '#ffb23f'; ctx.shadowBlur = 10;
-      ctx.beginPath(); ctx.arc(hx, hy, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(hx, hy, 10, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
       const period = o.type === 'source' || o.type === 'portal' ? 360 : o.type === 'prism' ? 120 : 180;
       const shown = ((-o.angle % period) + period) % period;
@@ -444,67 +617,129 @@
       const ty = o.y - R - 12 < 40 ? o.y + R + 22 : o.y - R - 10;
       ctx.fillText(`${shown.toFixed(1)}°`, o.x, ty);
     }
-    if (o.track) {
+    if (o.placed || o.track) {
       ctx.strokeStyle = '#ffb23f';
       ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
       ctx.beginPath(); ctx.arc(o.x, o.y, 14, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.restore();
   }
 
   function handleRadius(o) {
-    if (o.type === 'prism') return (o.size || 60) + 22;
+    if (o.type === 'prism') return (o.size || 55) + 22;
     if (o.type === 'source') return 50;
     return (o.len || 80) / 2 + 18;
   }
 
+  function pieceRadius(o) {
+    if (o.type === 'prism') return (o.size || 55) + 6;
+    if (o.type === 'diffuser') return (o.r || 16) + 10;
+    return (o.len || 80) / 2 + 6;
+  }
+
+  // Distance d'un point au « corps » d'une pièce (pour la saisir et la déplacer).
+  function bodyDistance(o, x, y) {
+    if (o.type === 'prism') return Math.max(0, Math.hypot(x - o.x, y - o.y) - (o.size || 55) * 0.6);
+    if (o.type === 'diffuser') return Math.max(0, Math.hypot(x - o.x, y - o.y) - (o.r || 16));
+    const [ax, ay, bx, by] = E.lineEnds(o);
+    const ex = bx - ax, ey = by - ay;
+    const u = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / (ex * ex + ey * ey)));
+    return Math.hypot(x - ax - ex * u, y - ay - ey * u);
+  }
+
   // ---------- Interaction ----------
-  function toWorld(e) {
+  function toWorld(clientX, clientY) {
     const r = canvas.getBoundingClientRect();
-    return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale];
+    return [(clientX - r.left) / scale, (clientY - r.top) / scale];
   }
+  const touchSlop = () => Math.max(16, 22 / scale);
 
+  // Que vise le pointeur ? → { obj, mode: 'rotate' | 'move' } ou null.
   function pick(x, y) {
-    let best = null, bestD = Infinity;
-    for (const o of objects) {
-      if (!isInteractive(o)) continue;
-      const d = Math.hypot(x - o.x, y - o.y);
-      const reach = (o.rotatable ? handleRadius(o) : 30) + 16;
-      if (d < reach && d < bestD) { best = o; bestD = d; }
+    const slop = touchSlop();
+    // 1) Poignée de rotation de l'objet actif (prioritaire).
+    const cands = objects.filter(isInteractive);
+    const active = [selected, hovered].filter(o => o && cands.includes(o));
+    for (const o of active) {
+      if (!canRotate(o)) continue;
+      const R = handleRadius(o), a = o.angle * DEG;
+      if (Math.hypot(x - (o.x + Math.cos(a) * R), y - (o.y + Math.sin(a) * R)) < slop) return { obj: o, mode: 'rotate' };
     }
-    return best;
+    // 2) Corps d'une pièce posée ou sur rail → déplacement.
+    let best = null, bestD = Infinity;
+    for (const o of cands) {
+      if (!o.placed && !o.track) continue;
+      const d = bodyDistance(o, x, y);
+      if (d < slop && d < bestD) { best = o; bestD = d; }
+    }
+    if (best) return { obj: best, mode: 'move' };
+    // 3) Couronne autour d'une pièce rotative → rotation.
+    for (const o of cands) {
+      if (!canRotate(o)) continue;
+      if (Math.hypot(x - o.x, y - o.y) < handleRadius(o) + slop * 0.6) return { obj: o, mode: 'rotate' };
+    }
+    return null;
   }
 
-  const normAngle = a => ((a % 360) + 360) % 360;
-
-  canvas.addEventListener('pointerdown', e => {
-    if (solvedAt) return;
-    const [x, y] = toWorld(e);
-    const o = pick(x, y);
-    if (!o) return;
+  function beginDrag(target, x, y, pointerId, fromToolbar) {
+    const o = target.obj;
     selected = o;
-    canvas.setPointerCapture(e.pointerId);
-    const d = Math.hypot(x - o.x, y - o.y);
-    if (o.track && (!o.rotatable || d < 26)) {
-      drag = { obj: o, mode: 'move', dx: o.x - x, dy: o.y - y };
+    if (target.mode === 'move') {
+      drag = { obj: o, mode: 'move', dx: o.x - x, dy: o.y - y, ox: o.x, oy: o.y, fromToolbar, moved: false, pointerId };
     } else {
-      drag = { obj: o, mode: 'rotate', start: Math.atan2(y - o.y, x - o.x), angle0: o.angle };
+      drag = { obj: o, mode: 'rotate', start: Math.atan2(y - o.y, x - o.x), angle0: o.angle, pointerId };
     }
     canvas.style.cursor = 'grabbing';
+  }
+
+  canvas.addEventListener('pointerdown', e => {
+    if (solvedAt || drag) return;
+    const [x, y] = toWorld(e.clientX, e.clientY);
+    const target = pick(x, y);
+    if (!target) { selected = null; return; }
+    beginDrag(target, x, y, e.pointerId, false);
     e.preventDefault();
   });
 
-  canvas.addEventListener('pointermove', e => {
-    const [x, y] = toWorld(e);
+  function startToolDrag(e, k) {
+    e.preventDefault();
+    if (solvedAt || drag) return;
+    if (level.tools[k].count - usedCount(k) <= 0) return;
+    const [x, y] = toWorld(e.clientX, e.clientY);
+    const piece = E.makePiece(level.tools[k], x, y);
+    piece.tool = k;
+    objects.push(piece);
+    beginDrag({ obj: piece, mode: 'move' }, x, y, e.pointerId, true);
+    drag.startClient = [e.clientX, e.clientY];
+    piece.invalid = !E.placementOK(level, objects, piece);
+    toolbar.classList.add('drop');
+    refreshToolbar();
+    update();
+  }
+
+  window.addEventListener('pointermove', e => {
     if (!drag) {
-      hovered = solvedAt ? null : pick(x, y);
-      canvas.style.cursor = hovered ? 'grab' : 'default';
+      if (e.target !== canvas) return;
+      const [x, y] = toWorld(e.clientX, e.clientY);
+      const t = solvedAt ? null : pick(x, y);
+      hovered = t ? t.obj : null;
+      canvas.style.cursor = t ? (t.mode === 'move' ? 'move' : 'grab') : 'default';
       return;
     }
+    if (e.pointerId !== drag.pointerId) return;
+    const [x, y] = toWorld(e.clientX, e.clientY);
     const o = drag.obj;
     if (drag.mode === 'move') {
-      const [px, py] = E.projectOnTrack(o.track, x + drag.dx, y + drag.dy);
-      o.x = px; o.y = py;
+      if (o.track) {
+        const [px, py] = E.projectOnTrack(o.track, x + drag.dx, y + drag.dy);
+        o.x = px; o.y = py;
+      } else {
+        o.x = x + drag.dx; o.y = y + drag.dy;
+        o.invalid = !E.placementOK(level, objects, o);
+      }
+      drag.moved = true;
+      if (o.placed) toolbar.classList.toggle('drop', overToolbar(e) || drag.fromToolbar);
     } else {
       const a = Math.atan2(y - o.y, x - o.x);
       let deg = drag.angle0 + (a - drag.start) / DEG;
@@ -514,23 +749,78 @@
     update();
   });
 
-  function endDrag() {
-    drag = null;
-    canvas.style.cursor = hovered ? 'grab' : 'default';
+  function overToolbar(e) {
+    const r = toolbar.getBoundingClientRect();
+    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top - 8 && e.clientY <= r.bottom;
   }
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
+  function overCanvas(e) {
+    const r = canvas.getBoundingClientRect();
+    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  }
+
+  function endDrag(e) {
+    if (!drag || (e && e.pointerId !== drag.pointerId)) return;
+    const o = drag.obj;
+    if (drag.mode === 'move' && o.placed) {
+      const tap = drag.fromToolbar && e && Math.hypot(e.clientX - drag.startClient[0], e.clientY - drag.startClient[1]) < 8;
+      if (tap) {
+        // Simple clic sur un outil : on le pose dans un endroit libre.
+        const spot = findFreeSpot(o);
+        if (spot) { o.x = spot[0]; o.y = spot[1]; o.invalid = false; } else removePiece(o);
+      } else if (e && (overToolbar(e) || !overCanvas(e))) {
+        removePiece(o);
+      } else if (o.invalid) {
+        if (drag.fromToolbar) removePiece(o);
+        else { o.x = drag.ox; o.y = drag.oy; }
+      }
+      delete o.invalid;
+    }
+    drag = null;
+    toolbar.classList.remove('drop');
+    canvas.style.cursor = 'default';
+    refreshToolbar();
+    update();
+  }
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
+
+  function removePiece(o) {
+    objects = objects.filter(p => p !== o);
+    if (selected === o) selected = null;
+    if (hovered === o) hovered = null;
+  }
+
+  // Cherche, en spirale depuis le centre du plateau, un emplacement autorisé.
+  function findFreeSpot(o) {
+    for (let r = 0; r < 500; r += 20) {
+      const steps = Math.max(1, Math.round((2 * Math.PI * r) / 40));
+      for (let k = 0; k < steps; k++) {
+        const a = (k / steps) * Math.PI * 2;
+        o.x = W / 2 + Math.cos(a) * r; o.y = H / 2 + Math.sin(a) * r;
+        if (E.placementOK(level, objects, o)) return [o.x, o.y];
+      }
+    }
+    return null;
+  }
+
   canvas.addEventListener('pointerleave', () => { if (!drag) hovered = null; });
+
+  canvas.addEventListener('dblclick', e => {
+    if (solvedAt) return;
+    const [x, y] = toWorld(e.clientX, e.clientY);
+    const t = pick(x, y);
+    if (t && t.obj.placed) { removePiece(t.obj); refreshToolbar(); update(); }
+  });
 
   canvas.addEventListener('wheel', e => {
     const o = hovered || selected;
-    if (!o || solvedAt) return;
+    if (!o || !objects.includes(o) || solvedAt || !(canRotate(o) || o.track)) return;
     e.preventDefault();
     nudge(o, Math.sign(e.deltaY) * (e.shiftKey ? 5 : 0.5));
   }, { passive: false });
 
   function nudge(o, amount) {
-    if (o.rotatable) o.angle = normAngle(o.angle + amount);
+    if (canRotate(o)) o.angle = normAngle(o.angle + amount);
     else if (o.track) {
       const [x1, y1, x2, y2] = o.track;
       const len = Math.hypot(x2 - x1, y2 - y1);
@@ -541,18 +831,18 @@
     update();
   }
 
+  const normAngle = a => ((a % 360) + 360) % 360;
+
   window.addEventListener('keydown', e => {
     if ($('menu').classList.contains('show')) { if (e.key === 'Escape') hideOverlays(); return; }
     if ($('win').classList.contains('show')) { if (e.key === 'Enter') { e.preventDefault(); goNext(); } return; }
-    const inter = objects.filter(isInteractive);
+    if (e.key === 'r' || e.key === 'R') { loadLevel(levelIndex); return; }
+    if (!selected || !objects.includes(selected) || solvedAt) return;
     const step = e.shiftKey ? 5 : 0.5;
-    if (e.key === 'r' || e.key === 'R') loadLevel(levelIndex);
-    else if (e.key === 'Tab' && inter.length) {
-      e.preventDefault();
-      const i = inter.indexOf(selected);
-      selected = inter[(i + (e.shiftKey ? inter.length - 1 : 1)) % inter.length];
-    } else if (selected && !solvedAt && (e.key === 'ArrowLeft' || e.key === 'ArrowDown')) { e.preventDefault(); nudge(selected, -step); }
-    else if (selected && !solvedAt && (e.key === 'ArrowRight' || e.key === 'ArrowUp')) { e.preventDefault(); nudge(selected, step); }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selected.placed) {
+      e.preventDefault(); removePiece(selected); refreshToolbar(); update();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); nudge(selected, -step); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); nudge(selected, step); }
   });
 
   // ---------- UI ----------
@@ -567,7 +857,7 @@
     const last = levelIndex === LEVELS.length - 1;
     $('win-text').textContent = last
       ? 'Tous les niveaux sont terminés. Bravo !'
-      : `« ${LEVELS[levelIndex].name} » réussi.`;
+      : `« ${level.name} » réussi.`;
     $('win-next').textContent = last ? 'Niveaux' : 'Niveau suivant';
     $('win').classList.add('show');
     $('win-next').focus();
@@ -631,7 +921,6 @@
   }
 
   window.addEventListener('resize', resize);
-  resize();
   const fromHash = parseInt(location.hash.slice(1), 10) - 1;
   let start = 0;
   if (fromHash >= 0 && fromHash < LEVELS.length && isUnlocked(fromHash)) start = fromHash;
@@ -639,6 +928,18 @@
   loadLevel(start);
   requestAnimationFrame(frame);
 
-  // Accès debug depuis la console.
-  window.lightGame = { loadLevel, update, get objects() { return objects; } };
+  // Accès debug depuis la console : place la solution connue du niveau courant.
+  window.lightGame = {
+    loadLevel, update,
+    get objects() { return objects; },
+    solve() {
+      for (const s of level.solution || []) {
+        const p = E.makePiece(level.tools[s.tool], s.x, s.y, s.angle);
+        p.tool = s.tool;
+        objects.push(p);
+      }
+      refreshToolbar();
+      update();
+    },
+  };
 })();

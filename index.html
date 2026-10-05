@@ -33,6 +33,15 @@
     main { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 8px; }
     canvas { display: block; touch-action: none; border-radius: 6px; }
 
+    #toolbar { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 8px 16px 0; min-height: 84px; }
+    #toolbar.drop { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: 14px; }
+    .tool { position: relative; width: 68px; height: 76px; flex-direction: column; padding: 4px 2px; gap: 2px; touch-action: none; }
+    .tool canvas { width: 44px; height: 44px; pointer-events: none; }
+    .tool span { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 64px; pointer-events: none; }
+    .tool b { position: absolute; top: -6px; right: -6px; min-width: 22px; height: 22px; border-radius: 11px; background: var(--accent); color: #1a1000;
+      font-size: 12px; display: flex; align-items: center; justify-content: center; padding: 0 5px; pointer-events: none; }
+    .tool.empty { opacity: .35; }
+    .tool.empty b { background: #3a3a44; color: var(--muted); }
     footer { padding: 10px 16px; padding-bottom: max(12px, env(safe-area-inset-bottom)); text-align: center; color: var(--muted); font-size: 14px; min-height: 44px; }
 
     .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
@@ -47,7 +56,7 @@
     .card .primary { background: var(--accent); color: #1a1000; border-color: var(--accent); font-weight: 700; }
     .rainbow { background: linear-gradient(90deg, #ff4d4d, #ffd84d, #4dff7a, #4dc3ff, #9b6bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
-    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px; max-height: 60vh; overflow-y: auto; padding: 4px; }
     .grid button { height: 52px; font-size: 18px; font-weight: 700; flex-direction: column; gap: 0; }
     .grid button small { font-size: 10px; font-weight: 400; color: var(--muted); }
     .grid button.done { border-color: #4b3a14; background: #1b1408; }
@@ -73,6 +82,7 @@
   </header>
 
   <main><canvas id="game"></canvas></main>
+  <div id="toolbar" aria-label="Boîte à outils"></div>
   <footer id="hint"></footer>
 
   <div class="overlay" id="win">

@@ -7,7 +7,7 @@
   const DEG = Math.PI / 180;
   const EPS = 1e-6;
   const MAX_DEPTH = 64;
-  const MAX_SEGMENTS = 600;
+  const MAX_SEGMENTS = 1500;
   const RAY_LEN = 4000;
 
   // Couleurs codées sur 3 bits : rouge=1, vert=2, bleu=4, blanc=7.
@@ -48,6 +48,7 @@
   function buildScene(objects) {
     const surfaces = [];
     const targets = [];
+    const diffusers = [];
     rectSurfaces(0, 0, W, BORDER, surfaces, null);
     rectSurfaces(0, H - BORDER, W, BORDER, surfaces, null);
     rectSurfaces(0, 0, BORDER, H, surfaces, null);
@@ -84,11 +85,16 @@
           if (nx * mx + ny * my < 0) { nx = -nx; ny = -ny; }
           surfaces.push({ ax: a[0], ay: a[1], bx: b[0], by: b[1], kind: 'glass', nx, ny, obj: o });
         }
+      } else if (o.type === 'lens') {
+        const [ax, ay, bx, by] = lineEnds(o);
+        surfaces.push({ ax, ay, bx, by, kind: 'lens', obj: o });
+      } else if (o.type === 'diffuser') {
+        diffusers.push(o);
       } else if (o.type === 'target') {
         targets.push(o);
       }
     }
-    return { surfaces, targets };
+    return { surfaces, targets, diffusers };
   }
 
   function raySegment(ox, oy, dx, dy, s) {
@@ -120,7 +126,7 @@
 
   // Lance tous les rayons. Retourne les segments lumineux et la couleur reçue par chaque cible.
   function trace(objects) {
-    const { surfaces, targets } = buildScene(objects);
+    const { surfaces, targets, diffusers } = buildScene(objects);
     const segments = [];
     const received = targets.map(() => 0);
     const stack = [];
@@ -134,7 +140,7 @@
 
     while (stack.length && segments.length < MAX_SEGMENTS) {
       const r = stack.pop();
-      let best = RAY_LEN, hit = null, hitTarget = -1;
+      let best = RAY_LEN, hit = null, hitTarget = -1, hitDiffuser = null;
       for (const s of surfaces) {
         const t = raySegment(r.x, r.y, r.dx, r.dy, s);
         if (t < best) { best = t; hit = s; }
@@ -144,10 +150,25 @@
         const t = rayCircle(r.x, r.y, r.dx, r.dy, tg.x, tg.y, tg.r || 26);
         if (t < best) { best = t; hit = null; hitTarget = i; }
       }
+      for (const df of diffusers) {
+        const t = rayCircle(r.x, r.y, r.dx, r.dy, df.x, df.y, df.r || 16);
+        if (t < best) { best = t; hit = null; hitTarget = -1; hitDiffuser = df; }
+      }
       const hx = r.x + r.dx * best, hy = r.y + r.dy * best;
       segments.push({ x1: r.x, y1: r.y, x2: hx, y2: hy, mask: r.mask, inGlass: !!r.inGlass });
 
       if (hitTarget >= 0) { received[hitTarget] |= r.mask; continue; }
+      if (hitDiffuser && r.depth < MAX_DEPTH) {
+        // Diffuseur : éclate le rayon en éventail régulier autour de sa direction.
+        const df = hitDiffuser, n = df.rays || 3, spread = (df.spread || 30) * DEG, rad = (df.r || 16) + 0.5;
+        for (let k = 0; k < n; k++) {
+          const off = n === 1 ? 0 : -spread / 2 + (k * spread) / (n - 1);
+          const c = Math.cos(off), s = Math.sin(off);
+          const ndx = r.dx * c - r.dy * s, ndy = r.dx * s + r.dy * c;
+          stack.push({ x: df.x + ndx * rad, y: df.y + ndy * rad, dx: ndx, dy: ndy, mask: r.mask, depth: r.depth + 1 });
+        }
+        continue;
+      }
       if (!hit || r.depth >= MAX_DEPTH) continue;
       const d = r.depth + 1;
 
@@ -181,6 +202,17 @@
         const ndx = r.dx * c - r.dy * s, ndy = r.dx * s + r.dy * c;
         segments.push({ x1: hx, y1: hy, x2: px, y2: py, mask: r.mask, warp: true });
         stack.push({ x: px + ndx * 1e-2, y: py + ndy * 1e-2, dx: ndx, dy: ndy, mask: r.mask, depth: d });
+      } else if (hit.kind === 'lens') {
+        // Lentille mince : la pente transverse change de -h/f (f > 0 convergente, f < 0 divergente).
+        const o = hit.obj, a = o.angle * DEG;
+        const tx = Math.cos(a), ty = Math.sin(a), nx = -ty, ny = tx;
+        const h = (hx - o.x) * tx + (hy - o.y) * ty;
+        const dn = r.dx * nx + r.dy * ny, dt = r.dx * tx + r.dy * ty;
+        const sgn = dn >= 0 ? 1 : -1;
+        const m = dt / Math.max(Math.abs(dn), 1e-6) - h / (o.f || 200);
+        let ox = sgn * nx + m * tx, oy = sgn * ny + m * ty;
+        const l = Math.hypot(ox, oy); ox /= l; oy /= l;
+        stack.push({ x: hx + ox * 1e-3, y: hy + oy * 1e-3, dx: ox, dy: oy, mask: r.mask, depth: d });
       } else if (hit.kind === 'filter') {
         const m = r.mask & hit.mask;
         if (m) stack.push({ x: hx + r.dx * 1e-3, y: hy + r.dy * 1e-3, dx: r.dx, dy: r.dy, mask: m, depth: d });
@@ -226,7 +258,48 @@
     return [x1 + ex * u, y1 + ey * u, u];
   }
 
-  const api = { W, H, BORDER, DEG, COLOR_MASK, COLOR_NAME, IOR, trace, prismVertices, lineEnds, projectOnTrack, cloneLevel };
+  // ---------- Outils posables par le joueur ----------
+  const TOOL_DEFAULTS = {
+    mirror: { len: 80, angle: 45 },
+    splitter: { len: 80, angle: 45 },
+    dichroic: { len: 70, angle: 45, color: 'R' },
+    filter: { len: 90, angle: 90, color: 'G' },
+    prism: { size: 55, angle: 0 },
+    lens: { len: 140, angle: 90, f: 200 },
+    diffuser: { r: 16, rays: 3, spread: 40 },
+  };
+
+  // Crée une pièce à partir d'une entrée d'inventaire { type, count, ...propriétés }.
+  function makePiece(tool, x, y, angle) {
+    const { count, ...props } = tool;
+    const piece = Object.assign({}, TOOL_DEFAULTS[tool.type], props, { x, y, placed: true });
+    if (angle !== undefined) piece.angle = angle;
+    if (piece.type !== 'diffuser') piece.rotatable = true;
+    return piece;
+  }
+
+  const inRect = (x, y, r, m) => x > r.x - m && x < r.x + r.w + m && y > r.y - m && y < r.y + r.h + m;
+
+  // Une pièce peut-elle être posée ici ? (centre dans le plateau, hors murs, zones interdites, cibles, sources)
+  function placementOK(level, objects, piece) {
+    const { x, y } = piece;
+    const m = 14;
+    if (x < BORDER + m || x > W - BORDER - m || y < BORDER + m || y > H - BORDER - m) return false;
+    for (const z of level.noPlace || []) if (inRect(x, y, z, 0)) return false;
+    for (const o of objects) {
+      if (o === piece) continue;
+      if (o.type === 'wall' && inRect(x, y, o, m)) return false;
+      if (o.type === 'target' && Math.hypot(x - o.x, y - o.y) < (o.r || 26) + 16) return false;
+      if (o.type === 'source' && Math.hypot(x - o.x, y - o.y) < 40) return false;
+      if (o.placed && Math.hypot(x - o.x, y - o.y) < 18) return false;
+    }
+    return true;
+  }
+
+  const api = {
+    W, H, BORDER, DEG, COLOR_MASK, COLOR_NAME, IOR, TOOL_DEFAULTS,
+    trace, prismVertices, lineEnds, projectOnTrack, cloneLevel, makePiece, placementOK,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LightEngine = api;
 })(typeof window !== 'undefined' ? window : globalThis);
