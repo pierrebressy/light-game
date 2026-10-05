@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Prisme</title>
+  <meta name="theme-color" content="#000000">
+  <style>
+    :root {
+      --bg: #000;
+      --panel: #0d0d10;
+      --ink: #f2f2f2;
+      --muted: #8b8b95;
+      --accent: #ffb23f;
+      --line: #23232a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+      font-family: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif; }
+    body { display: flex; flex-direction: column; height: 100dvh; user-select: none; -webkit-user-select: none; }
+
+    header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; padding-top: max(10px, env(safe-area-inset-top)); }
+    header .title { flex: 1; min-width: 0; }
+    header .title small { display: block; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    header .title strong { display: block; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+      height: 40px; min-width: 40px; padding: 0 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+    button:hover { border-color: #3a3a44; }
+    button:active { transform: scale(.97); }
+    button:disabled { opacity: .35; cursor: default; }
+    button svg { width: 18px; height: 18px; }
+
+    main { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 8px; }
+    canvas { display: block; touch-action: none; border-radius: 6px; }
+
+    footer { padding: 10px 16px; padding-bottom: max(12px, env(safe-area-inset-bottom)); text-align: center; color: var(--muted); font-size: 14px; min-height: 44px; }
+
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+    .overlay.show { display: flex; animation: fade .25s ease; }
+    @keyframes fade { from { opacity: 0; } }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 24px; width: min(420px, 100%); text-align: center; }
+    .card h2 { margin: 0 0 6px; font-size: 26px; }
+    .card h2.rainbow { display: inline-block; }
+    .card p { margin: 0 0 20px; color: var(--muted); }
+    .card .actions { display: flex; gap: 10px; justify-content: center; }
+    .card .primary { background: var(--accent); color: #1a1000; border-color: var(--accent); font-weight: 700; }
+    .rainbow { background: linear-gradient(90deg, #ff4d4d, #ffd84d, #4dff7a, #4dc3ff, #9b6bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+    .grid button { height: 52px; font-size: 18px; font-weight: 700; flex-direction: column; gap: 0; }
+    .grid button small { font-size: 10px; font-weight: 400; color: var(--muted); }
+    .grid button.done { border-color: #4b3a14; background: #1b1408; }
+    .grid button.done small { color: var(--accent); }
+    .grid button.current { outline: 2px solid var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <button id="btn-menu" aria-label="Niveaux">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+    </button>
+    <div class="title"><small id="lvl-num">Niveau 1</small><strong id="lvl-name">…</strong></div>
+    <button id="btn-prev" aria-label="Niveau précédent">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>
+    </button>
+    <button id="btn-reset" aria-label="Recommencer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v4h4"/></svg>
+    </button>
+    <button id="btn-next" aria-label="Niveau suivant">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+    </button>
+  </header>
+
+  <main><canvas id="game"></canvas></main>
+  <footer id="hint"></footer>
+
+  <div class="overlay" id="win">
+    <div class="card">
+      <h2 class="rainbow">Lumière !</h2>
+      <p id="win-text">Niveau réussi.</p>
+      <div class="actions">
+        <button id="win-replay">Rejouer</button>
+        <button id="win-next" class="primary">Niveau suivant</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="menu">
+    <div class="card">
+      <h2>Niveaux</h2>
+      <p>Guide la lumière jusqu’aux drapeaux.</p>
+      <div class="grid" id="level-grid"></div>
+      <div class="actions"><button id="menu-close">Fermer</button></div>
+    </div>
+  </div>
+
+  <script src="engine.js"></script>
+  <script src="levels.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
